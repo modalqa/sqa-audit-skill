@@ -100,26 +100,141 @@ Install both for combined mode. Add `--global` for a user-level installation, an
 
 ## Usage
 
-Start your coding agent in the repository you want to audit, then ask:
+Open your coding agent (Claude Code, Cursor, or another agent with skills support) in the repository you want to audit, then type a prompt. The skill activates from the wording of the request; you do not call it by name.
 
+### Modes
+
+| Mode | Triggered by | What happens |
+|------|--------------|--------------|
+| Guidance | A question or a focused review | Answers in chat. No output directory, no audit files |
+| Full audit | "audit …", "full/comprehensive review", or asking for a report | Runs all six phases and writes report files outside the repo |
+| Combined | "combined", "unified", or "SQA" audit | Runs the security and quality workflows, then writes `UNIFIED-REPORT.md` |
+
+If a request could mean either guidance or a full audit, the agent asks one question before creating files.
+
+### Example prompts: full quality audit
+
+```text
+Audit the test automation health of this repo.
 ```
-audit the test automation health of this repo
-check our e2e tests against docs/prd/checkout.md and the OpenAPI spec
-security audit this codebase
-run a combined quality and security audit, output to ~/audits/my-project
+
+```text
+Run a full quality audit of the tests in ./e2e and ./tests/api.
 ```
 
-Questions and focused reviews use guidance mode and write no files. Explicit audit requests or requests for report artifacts run the full workflow. Default output directories are outside the target:
+```text
+Audit our test coverage against docs/prd/checkout.md and write the report to ~/audits/shop-web.
+```
 
-- `~/quality-audit-skill/<repo-name>/run-<N>`
-- `~/security-audit-skill/<repo-name>/run-<N>`
-- `~/sqa-audit/<repo-name>/run-<N>` for combined runs
+### Example prompts: one module
 
-The scanner also runs standalone:
+Module A, SDET automation health:
+
+```text
+Audit the Playwright suite in ./e2e for flaky-test risks and automation anti-patterns.
+```
+
+```text
+Which of our Cypress specs have the highest flakiness risk, and why?
+```
+
+Module B, QA coverage and traceability:
+
+```text
+Build a traceability matrix from docs/prd/refunds.md to our tests and list the uncovered scenarios.
+```
+
+```text
+Here is the Jira story and its acceptance criteria: <paste>. Which happy-path, edge-case, and negative scenarios have no test?
+```
+
+```text
+Check whether the changes in this branch compared to main are covered by new or updated tests.
+```
+
+Module C, SEIT API contract and mocks:
+
+```text
+Compare our API tests and mocks with api/openapi.yaml and report contract mismatches.
+```
+
+```text
+Do our SuperTest tests validate response bodies against the OpenAPI schema, or only status codes?
+```
+
+```text
+Find MSW handlers and fixtures that no longer match the current DTOs.
+```
+
+### Example prompts: combined audit
+
+```text
+Run a combined quality and security audit of this codebase.
+```
+
+```text
+Do a unified SQA audit of this repo, quick profile, output to ~/audits/my-project.
+```
+
+### Example prompts: guidance mode (no files written)
+
+```text
+Is this test flaky? <paste test code>
+```
+
+```text
+How should I replace page.waitForTimeout in this spec?
+```
+
+```text
+Is this hard-coded password in tests/fixtures/users.ts a problem?
+```
+
+### Controlling a run
+
+Add these to any audit prompt:
+
+| Option | Example wording | Effect |
+|--------|-----------------|--------|
+| Profile | "quick audit", "deep audit" | `quick` is one review wave for a fast first look. `standard` is the default. `deep` splits units further and repeats critic waves until clean |
+| Scope | "only ./e2e", "only the payments API" | Reviews only the named paths. Everything else is recorded as out of scope |
+| Modules | "only SDET and SEIT" | Runs only the named modules |
+| Test basis | "against docs/prd/x.md", or paste the story | Sets the requirements that Module B traces |
+| Budget | "use at most 20 agents" | Caps agent invocations. Critic and validation reserves are set aside first |
+| Output | "output to ~/audits/x" | Sets the output directory, which must be outside the repo unless git ignores it |
+
+### What you get
+
+A full quality audit writes these files to `~/quality-audit-skill/<repo-name>/run-<N>/` by default:
+
+| File | Content |
+|------|---------|
+| `QUALITY-REPORT.md` | Health score, flakiness risk index, findings, coverage gaps, contract mismatches, needs-validation leads, coverage statement |
+| `quality-findings.json` | Verified findings: `confirmed`, `needs_validation`, and `rejected` |
+| `traceability-matrix.json` | Requirement → test condition → test case mapping |
+| `quality-ledger.json` | What was reviewed, by whom, and with what result |
+| `test-health.json` | Raw static scan output |
+
+A security audit writes `REPORT.md`, `FINDINGS-DETAIL.md`, `NEEDS-VALIDATION.md`, and `findings.json` to `~/security-audit-skill/<repo-name>/run-<N>/`. A combined audit writes both sets under `~/sqa-audit/<repo-name>/run-<N>/security/` and `…/quality/`, plus `UNIFIED-REPORT.md` at the root.
+
+### Running the tools directly
+
+The scanner and validator also work without an agent, for example in CI:
 
 ```bash
-node skills/quality-audit/analyze-test-health.cjs <repo> --out health.json
+# Static test-health scan: health score, flakiness risk index, rule hits
+node skills/quality-audit/analyze-test-health.cjs /path/to/repo --out health.json
+
+# Validate a finished quality run directory
+node skills/quality-audit/validate-quality-run.cjs ~/quality-audit-skill/my-repo/run-1
 ```
+
+### Tips
+
+- Name the test basis explicitly. Without a PRD, story, or contract, Module B can trace only the README and the diff.
+- Start a large repository with a `quick` audit, then run `standard` or `deep` on the riskiest suites.
+- Repeated runs are additive. A later run reuses earlier results to target remaining gaps, so run it again after fixes.
+- The health score is a static heuristic. Check the confirmed findings, not the score alone.
 
 ## Requirements
 

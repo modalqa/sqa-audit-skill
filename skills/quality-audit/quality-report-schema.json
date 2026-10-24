@@ -1,0 +1,247 @@
+{
+  "$comment": "Contracts for quality-findings.json, quality-ledger.json, and traceability-matrix.json. validate-quality-run.cjs interprets these schemas directly and adds cross-file checks in code. Terminology follows the ISTQB glossary (test basis, test condition, test case, coverage) and ISO/IEC/IEEE 29119-3 traceability; quality_characteristic uses the ISO/IEC 25010:2023 product quality model.",
+  "findings": {
+    "type": "array",
+    "items": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "A test-quality defect with a demonstrated consequence for the test suite's ability to detect failures.",
+          "properties": {
+            "verdict": { "type": "string", "const": "confirmed" },
+            "fingerprint": { "$ref": "#fingerprint" },
+            "module": { "$ref": "#module" },
+            "rule": { "$ref": "#rule" },
+            "quality_characteristic": { "$ref": "#characteristic" },
+            "title": { "type": "string", "minLength": 1, "visibleContent": true },
+            "description": { "type": "string", "minLength": 1, "visibleContent": true },
+            "root_cause": { "type": "string", "minLength": 1, "visibleContent": true },
+            "consequence": {
+              "type": "string",
+              "minLength": 1,
+              "visibleContent": true,
+              "description": "The concrete effect on test results: false pass, false fail, nondeterministic verdict, missed regression, or stale contract assumption."
+            },
+            "test_basis": {
+              "type": "array",
+              "items": { "$ref": "#location" },
+              "description": "Requirement, specification, or contract locations this defect relates to (ISO/IEC/IEEE 29119 test basis). Empty when the defect is purely in the test implementation."
+            },
+            "locations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#location" } },
+            "evidence": {
+              "type": "object",
+              "properties": {
+                "method": { "type": "string", "enum": ["source", "local"] },
+                "result": { "type": "string", "minLength": 1, "visibleContent": true },
+                "artifact": { "type": ["string", "null"], "minLength": 1 }
+              },
+              "required": ["method", "result", "artifact"],
+              "additionalProperties": false
+            },
+            "remediation": {
+              "type": "object",
+              "properties": {
+                "strategy": { "type": "string", "minLength": 1, "visibleContent": true },
+                "code_changes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "file": { "type": "string", "minLength": 1 },
+                      "description": { "type": "string", "minLength": 1, "visibleContent": true }
+                    },
+                    "required": ["file", "description"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["strategy"],
+              "additionalProperties": false
+            },
+            "severity": { "type": "string", "enum": ["informational", "low", "medium", "high", "critical"] },
+            "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+          },
+          "required": [
+            "verdict", "fingerprint", "module", "rule", "quality_characteristic", "title", "description",
+            "root_cause", "consequence", "test_basis", "locations", "evidence", "remediation", "severity", "confidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A source-grounded test-quality lead blocked on an exact unresolved fact. It carries no severity.",
+          "properties": {
+            "verdict": { "type": "string", "const": "needs_validation" },
+            "fingerprint": { "$ref": "#fingerprint" },
+            "module": { "$ref": "#module" },
+            "rule": { "$ref": "#rule" },
+            "quality_characteristic": { "$ref": "#characteristic" },
+            "title": { "type": "string", "minLength": 1, "visibleContent": true },
+            "description": { "type": "string", "minLength": 1, "visibleContent": true },
+            "claimed_root_cause": { "type": "string", "minLength": 1, "visibleContent": true },
+            "test_basis": { "type": "array", "items": { "$ref": "#location" } },
+            "locations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#location" } },
+            "blockers": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "visibleContent": true }
+            },
+            "validation_plan": { "type": "string", "minLength": 1, "visibleContent": true }
+          },
+          "required": [
+            "verdict", "fingerprint", "module", "rule", "quality_characteristic", "title", "description",
+            "claimed_root_cause", "test_basis", "locations", "blockers", "validation_plan"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A candidate disproved during validation, retained so later runs do not repeat it without changed evidence.",
+          "properties": {
+            "verdict": { "type": "string", "const": "rejected" },
+            "fingerprint": { "$ref": "#fingerprint" },
+            "module": { "$ref": "#module" },
+            "rule": { "$ref": "#rule" },
+            "title": { "type": "string", "minLength": 1, "visibleContent": true },
+            "claimed_root_cause": { "type": "string", "minLength": 1, "visibleContent": true },
+            "locations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#location" } },
+            "reason": { "type": "string", "minLength": 1, "visibleContent": true }
+          },
+          "required": ["verdict", "fingerprint", "module", "rule", "title", "claimed_root_cause", "locations", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "ledger": {
+    "type": "object",
+    "properties": {
+      "units": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "unit_id": { "type": "string", "pattern": "^(?:sdet|qa|seit)/[a-z0-9][a-z0-9._/-]*$" },
+            "module": { "$ref": "#module" },
+            "scope": { "type": "string", "minLength": 1, "visibleContent": true },
+            "starting_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "status": {
+              "type": "string",
+              "enum": ["planned", "in_progress", "covered", "candidate", "blocked", "deferred", "not_applicable", "out_of_scope"]
+            },
+            "agent_id": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+            "reviewed_paths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "agent_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+                  "check": { "type": "string", "minLength": 1, "visibleContent": true },
+                  "method": { "type": "string", "enum": ["source", "local"] },
+                  "result": { "type": "string", "minLength": 1, "visibleContent": true }
+                },
+                "required": ["agent_id", "check", "method", "result"],
+                "additionalProperties": false
+              }
+            },
+            "result_fingerprints": { "type": "array", "uniqueItems": true, "items": { "$ref": "#fingerprint" } },
+            "unresolved": { "type": "array", "items": { "type": "string", "minLength": 1, "visibleContent": true } },
+            "reason": { "type": ["string", "null"], "minLength": 1 }
+          },
+          "required": [
+            "unit_id", "module", "scope", "starting_paths", "status", "agent_id", "reviewed_paths",
+            "checks", "result_fingerprints", "unresolved", "reason"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["units"],
+    "additionalProperties": false
+  },
+  "matrix": {
+    "type": "object",
+    "properties": {
+      "test_basis": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "basis_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+            "path": { "type": "string", "minLength": 1 },
+            "kind": { "type": "string", "enum": ["prd", "user_story", "acceptance_criteria", "readme", "api_contract", "code_change", "other"] }
+          },
+          "required": ["basis_id", "path", "kind"],
+          "additionalProperties": false
+        }
+      },
+      "requirements": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requirement_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+            "basis_id": { "type": "string", "minLength": 1 },
+            "line": { "type": "integer", "minimum": 1 },
+            "summary": { "type": "string", "minLength": 1, "visibleContent": true },
+            "risk_level": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+            "test_conditions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "condition_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+                  "kind": { "type": "string", "enum": ["happy_path", "edge_case", "negative"] },
+                  "technique": {
+                    "type": "string",
+                    "enum": [
+                      "equivalence_partitioning", "boundary_value_analysis", "decision_table", "state_transition",
+                      "scenario_testing", "classification_tree", "pairwise", "syntax_testing", "error_guessing",
+                      "checklist_based", "exploratory", "other"
+                    ]
+                  },
+                  "summary": { "type": "string", "minLength": 1, "visibleContent": true },
+                  "status": { "type": "string", "enum": ["covered", "partial", "uncovered", "not_testable"] },
+                  "test_cases": { "type": "array", "uniqueItems": true, "items": { "$ref": "#location" } },
+                  "gap_fingerprint": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$" },
+                  "note": { "type": ["string", "null"], "minLength": 1 }
+                },
+                "required": ["condition_id", "kind", "technique", "summary", "status", "test_cases", "gap_fingerprint", "note"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["requirement_id", "basis_id", "line", "summary", "risk_level", "test_conditions"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["test_basis", "requirements"],
+    "additionalProperties": false
+  },
+  "definitions": {
+    "fingerprint": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$" },
+    "module": { "type": "string", "enum": ["sdet", "qa", "seit"] },
+    "rule": { "type": "string", "pattern": "^(?:SDET|QA|SEIT)-[A-Z0-9]+(?:-[A-Z0-9]+)*$" },
+    "characteristic": {
+      "type": "string",
+      "enum": [
+        "functional_suitability", "performance_efficiency", "compatibility", "interaction_capability",
+        "reliability", "security", "maintainability", "flexibility", "safety"
+      ]
+    },
+    "location": {
+      "type": "object",
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string", "minLength": 1, "visibleContent": true }
+      },
+      "required": ["file", "line", "description"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -269,8 +269,6 @@ node skills/quality-audit/analyze-test-health.cjs /path/to/repo --out health.jso
 node --test 'skills/**/*.test.cjs'
 ```
 
-CI tests on Node.js 22, 24, and 26 and runs CodeQL (`security-extended`) and a secret scan over the full git history. Dependabot keeps GitHub Actions current.
-
 ## Contributing and support
 
 Open an issue or pull request at [github.com/modalqa/sqa-audit-skill](https://github.com/modalqa/sqa-audit-skill/issues).

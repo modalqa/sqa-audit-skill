@@ -2,7 +2,7 @@
 
 /**
  * Validates a quality-audit run directory: quality-findings.json,
- * quality-ledger.json, and (when Module B ran) traceability-matrix.json.
+ * quality-ledger.json, and (when the functional module ran) traceability-matrix.json.
  * Usage: node validate-quality-run.cjs <output-dir>
  *
  * This is a dependency-free interpreter for the JSON Schema keywords used by
@@ -46,8 +46,11 @@ const SUPPORTED_KEYWORDS = new Set([
   "uniqueItems",
   "visibleContent",
 ]);
-const RULE_PREFIX = new Map([["sdet", "SDET-"], ["qa", "QA-"], ["seit", "SEIT-"]]);
+const RULE_PREFIX = new Map([["functional", "FUNC-"], ["api", "API-"], ["nonfunctional", "NFR-"], ["testware", "SDET-"]]);
+const BASIS_ORACLES = new Set(["requirement", "contract", "documentation"]);
 const AGENT_ARTIFACT = /^agents\/([a-z0-9][a-z0-9_-]{0,63})\/artifacts\/[^/].*$/;
+// Regression scripts are meant to be committed; credentials must come from the environment.
+const INLINE_CREDENTIAL = /\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|bearer)\b["']?\s*[:=]\s*["'][^"'\s]{8,}["']|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9_-]{32,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const VISIBLE_CONTENT = /[^\p{White_Space}\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
 const PATH_FORBIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 const UNSAFE_DIAGNOSTIC_CHARACTER = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu;
@@ -264,18 +267,26 @@ function collectFindingSemanticErrors(findings, errors) {
 
     finding.locations.forEach((location, locationIndex) => checkPath(location.file, `${p}.locations[${locationIndex}].file`, errors));
     (finding.test_basis || []).forEach((location, locationIndex) => checkPath(location.file, `${p}.test_basis[${locationIndex}].file`, errors));
-    if (finding.module === "qa" && finding.verdict !== "rejected" && finding.test_basis.length === 0) {
-      errors.push(`${p}.test_basis: a qa finding must cite the requirement or specification it traces to`);
-    }
     if (finding.remediation && finding.remediation.code_changes) {
       finding.remediation.code_changes.forEach((change, changeIndex) => checkPath(change.file, `${p}.remediation.code_changes[${changeIndex}].file`, errors));
     }
-    if (finding.evidence) {
-      const { method, artifact } = finding.evidence;
-      if (method === "source" && artifact !== null) errors.push(`${p}.evidence.artifact: a source check must use null`);
-      if (method === "local" && (typeof artifact !== "string" || !AGENT_ARTIFACT.test(artifact) || !isSafeRelativeSourcePath(artifact))) {
-        errors.push(`${p}.evidence.artifact: a local check must link a promoted file under agents/<agent-id>/artifacts/`);
-      }
+    if (finding.verdict !== "confirmed") return;
+
+    if (BASIS_ORACLES.has(finding.oracle.kind) && finding.test_basis.length === 0) {
+      errors.push(`${p}.test_basis: a ${finding.oracle.kind} oracle must cite its test basis location`);
+    }
+    const { method, artifact } = finding.reproduction;
+    if (method === "source" && artifact !== null) errors.push(`${p}.reproduction.artifact: a source reproduction must use null`);
+    if (method !== "source" && (typeof artifact !== "string" || !AGENT_ARTIFACT.test(artifact) || !isSafeRelativeSourcePath(artifact))) {
+      errors.push(`${p}.reproduction.artifact: a ${method} reproduction must link a promoted file under agents/<agent-id>/artifacts/`);
+    }
+    const { script, verified_failing: verifiedFailing } = finding.regression_test;
+    checkPath(script.file, `${p}.regression_test.script.file`, errors);
+    if (verifiedFailing && method === "source") {
+      errors.push(`${p}.regression_test.verified_failing: requires a local or staging reproduction`);
+    }
+    if (INLINE_CREDENTIAL.test(script.code)) {
+      errors.push(`${p}.regression_test.script.code: contains a credential-shaped literal; read credentials from environment variables`);
     }
   });
 }
@@ -317,7 +328,7 @@ function collectLedgerSemanticErrors(ledger, errors) {
   });
 }
 
-function collectMatrixSemanticErrors(matrix, findingsByFingerprint, errors) {
+function collectMatrixSemanticErrors(matrix, findingsByFingerprint, errors, warnings) {
   const basisIds = new Set();
   matrix.test_basis.forEach((basis, index) => {
     const p = `$matrix.test_basis[${index}]`;
@@ -339,25 +350,39 @@ function collectMatrixSemanticErrors(matrix, findingsByFingerprint, errors) {
       const c = `${p}.test_conditions[${conditionIndex}]`;
       if (conditionIds.has(condition.condition_id)) errors.push(`${c}: duplicate condition_id ${safeQuote(condition.condition_id)}`);
       conditionIds.add(condition.condition_id);
-      condition.test_cases.forEach((testCase, caseIndex) => checkPath(testCase.file, `${c}.test_cases[${caseIndex}].file`, errors));
+      condition.implementation.forEach((location, locationIndex) => checkPath(location.file, `${c}.implementation[${locationIndex}].file`, errors));
+      condition.existing_tests.forEach((location, locationIndex) => checkPath(location.file, `${c}.existing_tests[${locationIndex}].file`, errors));
 
-      const linked = condition.test_cases.length > 0;
-      if ((condition.status === "covered" || condition.status === "partial") && !linked) {
-        errors.push(`${c}: a ${condition.status} condition must link at least one test case`);
+      const { verdict, defect_fingerprint: fingerprint } = condition;
+      const finding = fingerprint === null ? null : findingsByFingerprint.get(fingerprint);
+      if (fingerprint !== null && (!finding || finding.verdict === "rejected" || finding.module === "testware")) {
+        errors.push(`${c}.defect_fingerprint: must reference a confirmed or needs_validation application finding`);
       }
-      if ((condition.status === "uncovered" || condition.status === "not_testable") && linked) {
-        errors.push(`${c}: an ${condition.status} condition links no test case`);
+      if ((verdict === "not_testable") !== (condition.verification_method === null)) {
+        errors.push(`${c}.verification_method: is null exactly when the verdict is not_testable`);
       }
-      if (condition.status === "not_testable" && condition.note === null) errors.push(`${c}.note: explain why the condition is not testable`);
-      if (condition.status === "covered" && condition.gap_fingerprint !== null) errors.push(`${c}.gap_fingerprint: a covered condition has no gap`);
-      if ((condition.status === "uncovered" || condition.status === "partial") && elevated && condition.gap_fingerprint === null) {
-        errors.push(`${c}.gap_fingerprint: a ${condition.status} condition on a ${requirement.risk_level}-risk requirement must link a qa finding`);
+      switch (verdict) {
+        case "pass":
+          if (condition.implementation.length === 0) errors.push(`${c}: a pass verdict must cite the implementation that satisfies it`);
+          if (fingerprint !== null) errors.push(`${c}.defect_fingerprint: a pass verdict has no defect`);
+          break;
+        case "fail":
+        case "not_implemented":
+          if (verdict === "fail" && condition.implementation.length === 0) errors.push(`${c}: a fail verdict must cite the failing implementation`);
+          if (verdict === "not_implemented" && condition.implementation.length > 0) errors.push(`${c}: a not_implemented verdict cites no implementation`);
+          if (!finding || finding.verdict !== "confirmed") errors.push(`${c}.defect_fingerprint: a ${verdict} verdict must link a confirmed finding`);
+          break;
+        case "needs_validation":
+          if (fingerprint === null && condition.note === null) errors.push(`${c}: a needs_validation verdict links a finding or explains the blocker in note`);
+          if (finding && finding.verdict !== "needs_validation") errors.push(`${c}.defect_fingerprint: must link a needs_validation finding`);
+          break;
+        default:
+          if (condition.note === null) errors.push(`${c}.note: explain why the condition is not testable`);
+          if (fingerprint !== null) errors.push(`${c}.defect_fingerprint: a not_testable condition has no defect`);
       }
-      if (condition.gap_fingerprint !== null) {
-        const finding = findingsByFingerprint.get(condition.gap_fingerprint);
-        if (!finding || finding.verdict === "rejected" || finding.module !== "qa") {
-          errors.push(`${c}.gap_fingerprint: must reference a confirmed or needs_validation qa finding`);
-        }
+      // Coverage gap: verified behavior that no existing test protects from regression.
+      if (elevated && verdict !== "not_testable" && condition.existing_tests.length === 0) {
+        warnings.push(`coverage gap: ${requirement.requirement_id}/${condition.condition_id} (${requirement.risk_level} risk) has no existing test`);
       }
     });
   });
@@ -405,11 +430,11 @@ function validateRun({ findings, ledger, matrix }, schema) {
   collectLedgerSemanticErrors(ledger, errors);
   collectCrossFileErrors(findings, ledger, errors, warnings);
 
-  const qaUnitsReviewed = ledger.units.some((unit) => unit.module === "qa" && ["covered", "candidate", "blocked"].includes(unit.status));
-  if (matrix === undefined && qaUnitsReviewed) {
-    errors.push(`${FILES.matrix}: required when a qa ledger unit was reviewed`);
+  const functionalUnitsReviewed = ledger.units.some((unit) => unit.module === "functional" && ["covered", "candidate", "blocked"].includes(unit.status));
+  if (matrix === undefined && functionalUnitsReviewed) {
+    errors.push(`${FILES.matrix}: required when a functional ledger unit was reviewed`);
   } else if (matrix !== undefined) {
-    collectMatrixSemanticErrors(matrix, new Map(findings.map((finding) => [finding.fingerprint, finding])), errors);
+    collectMatrixSemanticErrors(matrix, new Map(findings.map((finding) => [finding.fingerprint, finding])), errors, warnings);
   }
   return { errors, warnings };
 }

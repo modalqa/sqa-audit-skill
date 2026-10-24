@@ -1,10 +1,10 @@
-# SDET Automation Health (Module A)
+# Testware Health (module `testware`, optional)
 
 #### When to use this file
 
-Reach for this file for any UI, mobile, or API automation suite: Playwright, Cypress, Selenium/WebDriver, WebdriverIO, Appium, Puppeteer, TestCafe, Detox, Espresso/XCUITest, pytest, Jest/Vitest/Mocha, JUnit/TestNG, NUnit/xUnit, Go `testing`, RSpec. It covers synchronization, locator strategy, assertion design, isolation, test automation architecture, and reliability controls.
+This module is secondary and runs only when the user asks about the existing test suite: flaky tests, automation quality, test maintainability, or mock drift. It reviews the repository's own UI, mobile, and API automation (Playwright, Cypress, Selenium/WebDriver, WebdriverIO, Appium, Puppeteer, TestCafe, Detox, Espresso/XCUITest, pytest, Jest/Vitest/Mocha, JUnit/TestNG, NUnit/xUnit, Go `testing`, RSpec) for defects that change what the suite's verdicts mean.
 
-`analyze-test-health.cjs` gives this module its leads. Use [QA-COVERAGE-TRACEABILITY.md](QA-COVERAGE-TRACEABILITY.md) for what the tests should cover and [SEIT-API-CONTRACT.md](SEIT-API-CONTRACT.md) for API schema and mock fidelity.
+`analyze-test-health.cjs` gives this module its leads, the Test Automation Health Score, and the Flakiness Risk Index. These describe the test suite, not the application. Which behaviors lack tests is recorded by the main modules in the matrix's `existing_tests` field, not here.
 
 ## Core discipline (include in every agent prompt for this module)
 
@@ -55,7 +55,7 @@ A test with no assertion, an assertion only on a mock it configured, `expect(tru
 In a CI-gating suite, a focused test silently disables every other test in the file or the run. Confirm whether CI uses `--forbid-only` or an equivalent; if it does, severity drops to informational.
 
 **SDET-SKIPPED-TEST — disabled test without an owner or exit condition**
-`skip`, `xit`, `@Disabled`, `@pytest.mark.skip`. A finding only when the skipped test is the sole coverage of a requirement condition; link it to Module B.
+`skip`, `xit`, `@Disabled`, `@pytest.mark.skip`. A finding only when the skipped test is the sole existing test of a matrix condition; cite that condition.
 
 **SDET-SHARED-STATE — order-dependent tests**
 Tests that rely on state created by an earlier test, module-level mutable data, shared accounts, or unreset databases or storage. Confirm with the runner's parallel or shuffle settings.
@@ -80,6 +80,20 @@ Absolute URLs, ports, or environment names instead of the configured base URL, w
 **SDET-TIMEOUT-POLICY — global timeouts that hide slowness or cause false fails**
 Very large global timeouts that hide performance regressions, or timeouts below the system's documented latency.
 
+## Mock and API-test fidelity classes (subagent_type: `research`)
+
+**SDET-STATUS-ONLY-ASSERTION — API tests never validate response bodies**
+API tests assert the status code (and perhaps one field) but never validate the body against the contract schema, so a breaking field change passes every test.
+
+**SDET-STALE-MOCK — mock data no longer matches the contract or DTO**
+A mock, stub, MSW handler, nock interceptor, WireMock mapping, or recorded response returns fields, types, enums, or status codes that the current contract or DTO does not have, so tests pass against behavior the system no longer has.
+
+**SDET-MOCK-OVER-SPECIFICATION — mock accepts anything**
+A mock that ignores the request, so a client sending a malformed request still passes.
+
+**SDET-FIXTURE-SCHEMA-DRIFT — seed data inconsistent with the database schema**
+Fixtures or factories whose fields no longer match migrations or models, hidden by lenient loaders.
+
 ## Framework-specific checks
 
 - **Playwright**: prefer `getByRole`/`getByLabel`/`getByTestId`; web-first `expect`; `forbidOnly: !!process.env.CI`; `trace: 'on-first-retry'`; per-test isolation through fixtures.
@@ -101,3 +115,4 @@ Very large global timeouts that hide performance regressions, or timeouts below 
 3. For nondeterminism, show the asynchronous dependency in source; a local repeat result strengthens but is not required for `confirmed` when the race is source-evident and no control prevents it.
 4. For maintainability classes, show concrete duplication or churn; do not report style preferences.
 5. Use `needs_validation` when the decisive fact is CI behavior, flake history, or environment data outside the repository.
+6. Testware records use the same schema as application defects. `oracle` names what the test should prove, `reproduction` shows the wrong verdict (for example a passing run against a mutated implementation or a differing repeat result), and `regression_test` carries the corrected test in the suite's own framework.

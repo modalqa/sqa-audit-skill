@@ -1,88 +1,88 @@
 # Quality Reconnaissance
 
-### Phase 1: Map the test architecture and plan coverage
+### Phase 1: Map the product and plan coverage
 
-The parent initializes `run-metadata.json`, applies the budget gate in `SKILL.md`, and runs the deterministic scan before launching any agent:
+The parent initializes `run-metadata.json`, applies the budget gate in `SKILL.md`, and, when staging is requested, completes the authorization gate in [STAGING-TESTING.md](STAGING-TESTING.md). Reconnaissance reads the repository only. It does not run the application or contact staging.
+
+If the `testware` module is selected, the parent also runs the deterministic scanner once:
 
 ```sh
 node <skill-dir>/analyze-test-health.cjs <target> --out <output-dir>/test-health.json
 ```
 
-The scanner reads source only, skips dependency and build directories, never follows symlinks, and never copies source text into its output. Its hits are leads for Module A; its `frameworks_detected` list seeds the agents below. If it reports `truncated: true`, say so in `architecture.md` and scope the run.
+Launch these `research` agents in parallel. They return structured facts to the parent and do not write files.
 
-Then launch these `research` agents in parallel. They return structured facts to the parent and do not write files.
-
-**Agent 1a: Test architecture and automation stack**
+**Agent 1a: Product, features, and architecture**
 
 ```text
-Read the target at <target>. Do not use network access and do not run tests. Return:
-1. Test levels present (component/unit, integration, contract, system/E2E, acceptance, performance)
-   and the repository-relative directories and frameworks for each.
-2. The test automation architecture: runners, page objects or screen objects, fixtures, helpers,
-   keyword or BDD layers, test data builders, and shared configuration (base URL, timeouts, retries).
-3. Which suites gate CI, from local CI configuration files, with the exact job and command.
-4. Retry, rerun, quarantine, and timeout settings with file:line.
-5. Exact offline commands that would run each suite locally, the dependencies they need, and whether
-   those dependencies are present. Do not run them.
-6. Facts outside the repository that limit the audit (CI dashboards, flake history, test management tools).
+Read the target at <target>. Do not use network access and do not run anything. Return:
+1. Product type, users and roles, and the main use cases, each with the code areas that implement it.
+2. Languages, frameworks, runtimes, data stores, and external integrations (with the client code for each).
+3. Entry points: routes, pages/screens, CLI commands, jobs, consumers, and public library functions.
+4. Domain rules visible in code: state machines, calculations, validation schemas, limits, and constants.
+5. Exact offline commands to build without installing anything, start the app on loopback with local data, and run the
+   existing tests, plus missing dependencies or services that prevent local execution. Do not run them.
+6. Supported platforms stated by the project (browserslist, engines, minimum SDK, accessibility level).
 Return only source facts with repository-relative file:line references.
 ```
 
-**Agent 1b: Test basis inventory**
+**Agent 1b: Test basis and requirements**
 
 ```text
-Read the target at <target> and the user-supplied test basis <test-basis-paths>. Return:
-1. Every test basis source: PRD, user stories, acceptance criteria, README feature descriptions,
-   ADRs, API contracts, and the diff under review if one was named.
-2. For each source, the testable requirements it states, each with file:line, a one-line summary,
-   and a proposed risk level (critical/high/medium/low) with the business or user impact that justifies it.
+Read the target at <target> and the test basis <test-basis-paths>. Return:
+1. Every test basis source: PRD, user stories, acceptance criteria, README feature descriptions, ADRs,
+   API contracts, user documentation, and the diff under review if one was named.
+2. For each source, the testable requirements it states (functional and non-functional), each with
+   file:line, a one-line summary, and a proposed risk level (critical/high/medium/low) with the business
+   or user impact that justifies it.
 3. Requirements that are ambiguous, contradictory, or untestable as written, with the exact gap.
-Do not invent requirements the sources do not state. Return only facts with file:line references.
+Do not invent requirements. Return only facts with file:line references.
 ```
 
-**Agent 1c: Contracts, clients, and mocks**
+**Agent 1c: Contracts, integrations, and existing tests**
 
 ```text
 Read the target at <target>. Return:
-1. API contracts: OpenAPI/Swagger, AsyncAPI, GraphQL schema, protobuf, JSON Schema, Pact files,
-   and their version markers.
-2. Server route and DTO definitions that implement those contracts, with file:line.
-3. API and integration tests (SuperTest, Playwright request, REST Assured, requests/httpx, Postman/Newman
-   collections, k6, Karate, Pact) and the operations each one exercises.
-4. Mocks, stubs, fixtures, recorded responses, and mock servers (MSW, nock, WireMock, Prism, responses,
-   unittest.mock, Mockito) and the operation or DTO each one imitates.
-5. Whether tests validate response bodies against a schema, and how.
+1. API contracts (OpenAPI/Swagger, AsyncAPI, GraphQL schema, protobuf, JSON Schema, Pact) and the handler
+   implementing each operation, with file:line.
+2. Outbound integrations: client code, timeout and retry settings, and error handling for each.
+3. Existing tests by level (component, integration, API, E2E), framework, directory, naming and fixture
+   conventions, and the CI jobs that run them. Future regression scripts must follow these conventions.
 Return only source facts with repository-relative file:line references.
 ```
 
-Add a focused agent only when a large monorepo or several independent suites make one agent's answer shallow, and repeat the budget gate for it.
+Add a focused agent only when a large monorepo makes one agent's answer shallow, and repeat the budget gate for it.
 
 ## Synthesis
 
 The parent writes `architecture.md` with:
 
-1. Test levels, frameworks, CI-gating suites, retry and timeout policy.
-2. The test basis inventory and the requirement list with proposed risk levels.
-3. The contract inventory with linked tests and mocks.
-4. The `test-health.json` summary: health score, top flakiness risk files, rule counts.
-5. Known limits: missing toolchains, external facts, truncated scans.
+1. Product summary, roles, main use cases, and entry points.
+2. The requirement list with proposed risk levels, and basis defects.
+3. The operation table for contracts and the integration list.
+4. How to run the app and tests locally, what blocks local execution, and the staging authorization (origins and write permission only, never credentials).
+5. Test conventions for regression scripts: framework, directory, naming, fixtures, and helpers.
+6. If `testware` is selected, the `test-health.json` summary.
+
+The parent also writes the initial `traceability-matrix.json` with every requirement and its derived test conditions, each with verdict `needs_validation`, `verification_method: "source"`, empty `implementation` and `existing_tests`, and note `"not yet verified"`. Reviewers replace these rows.
 
 ## Ledger seeding
 
-Write `quality-ledger.json` as `{ "units": [...] }`, sorted by `unit_id`. Each unit is one reviewable assignment:
+Write `quality-ledger.json` as `{ "units": [...] }`, sorted by `unit_id`:
 
-- **`sdet/<suite-slug>`** — one per test suite directory or CI-gating suite. In `deep`, split per framework or per feature folder. Starting paths are the suite directory plus its shared fixtures and page objects. Seed one unit for every file in the flakiness risk index with `risk_level: "high"` that no suite unit already owns.
-- **`qa/<requirement-area-slug>`** — one per feature area in the test basis. In `quick`, one unit per test basis source.
-- **`seit/<contract-slug>`** — one per contract file, or per service when a contract is absent but API tests exist. A service with API tests and no contract gets a unit whose scope is "contract absent; compare tests with route and DTO definitions."
+- **`functional/<feature-slug>`** — one per feature area or use case. In `deep`, one per requirement group or state machine.
+- **`api/<contract-or-service-slug>`** — one per contract file, or per service when a contract is absent but the service exposes or consumes an API.
+- **`nonfunctional/<characteristic>-<area-slug>`** — one per characteristic with stated requirements or a high-risk area (data-heavy queries, concurrency-sensitive writes, UI flows that need accessibility review).
+- **`testware/<suite-slug>`** — only when the module is selected: one per test suite directory, plus one per high-risk file in the flakiness index that no suite unit owns.
 
-Unit IDs are lowercase, match `^(?:sdet|qa|seit)/[a-z0-9][a-z0-9._/-]*$`, and derive only from repository paths or test basis IDs, never from waves or agents. Every unit starts `planned` with `agent_id: null`, empty evidence, and `reason: null`. Modules not selected for the run get no units; areas outside the scope get `out_of_scope` with a reason. Run the validator once the ledger exists; an empty `quality-findings.json` (`[]`) is valid at this point:
+Unit IDs are lowercase, match `^(?:functional|api|nonfunctional|testware)/[a-z0-9][a-z0-9._/-]*$`, and derive only from repository paths or requirement IDs. Every unit starts `planned` with `agent_id: null`, empty evidence, and `reason: null`. Unselected modules get no units; out-of-scope areas get `out_of_scope` with a reason. Write `quality-findings.json` as `[]` and run the validator:
 
 ```sh
 node <skill-dir>/validate-quality-run.cjs <output-dir>
 ```
 
-Prioritize units for assignment in this order: (1) CI-gating suites and critical-risk requirements; (2) high-risk flakiness files and contracts with active consumers; (3) changed source and prior-run gaps; (4) the rest. Ties break lexicographically by `unit_id`.
+Prioritize assignment by: (1) critical- and high-risk requirements and main use cases; (2) money, data-integrity, and externally consumed API surfaces; (3) changed source and prior-run gaps; (4) the rest. Ties break lexicographically by `unit_id`.
 
 ## Prior runs
 
-If prior quality runs exist, read their ledgers and findings first. Carry a prior `confirmed` record only when its locations and test basis are unchanged, and re-verify it in this run. Prior `needs_validation`, `blocked`, and `deferred` units are current work. A prior `rejected` record suppresses only the same unchanged claim. Never treat a prior `quick` or scoped run as coverage of what it did not review.
+If prior quality runs exist, read their ledgers, matrices, and findings first. Carry a prior `confirmed` record only when its locations and test basis are unchanged, and re-verify it. A prior `pass` verdict on changed implementation becomes current work. Prior `needs_validation`, `blocked`, and `deferred` units are current work. A prior `rejected` record suppresses only the same unchanged claim.

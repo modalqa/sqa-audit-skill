@@ -2,7 +2,7 @@
 
 /**
  * Deterministic static scan of test-automation source for flakiness and
- * maintainability anti-patterns (Module A lead generation).
+ * maintainability anti-patterns (lead generation for the optional testware module).
  * Usage: node analyze-test-health.cjs <target-root> [--out <new-file.json>]
  *
  * Hits are leads, not findings. The scanner never executes target code, never
@@ -316,7 +316,7 @@ function scanFile(root, relative, state) {
     }
     const hit = {
       rule_id: rule.id,
-      module: "sdet",
+      module: "testware",
       file: relative,
       line: lineNumber,
       title: rule.title,

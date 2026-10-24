@@ -265,6 +265,18 @@ node skills/quality-audit/analyze-test-health.cjs /path/to/repo --out health.jso
 
 ## Development
 
+Run the local quality and security gate before pushing:
+
+```bash
+scripts/check.sh                  # syntax, tests, dependency audit, and secret scan of the tree and full git history
+scripts/check.sh --staged         # fast mode: same checks, secret scan limited to staged content
+scripts/check.sh --install-hook   # run --staged automatically on every git commit
+```
+
+The secret scan looks for high-signal credential formats (cloud, GitHub, GitLab, Slack, Stripe, OpenAI-style keys, and private keys) and reports only the file and line or commit, never the value. If it finds one, rotate the credential first, then remove it from the code and, if committed, from history. The dependency audit runs `npm audit --audit-level=high` for any `package.json` that declares dependencies; the skills currently have none.
+
+To run only the tests:
+
 ```bash
 node --test 'skills/**/*.test.cjs'
 ```

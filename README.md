@@ -1,4 +1,15 @@
-# security-audit
+# sqa-audit-skill
+
+This repository holds two coding-agent skills that can run separately or together:
+
+| Skill | Purpose |
+|-------|---------|
+| [`security-audit`](skills/security-audit/SKILL.md) | The original Cloudflare security audit workflow, unchanged |
+| [`quality-audit`](skills/quality-audit/SKILL.md) | Test-quality audit: SDET automation health, QA requirement traceability, and SEIT API contract and mock fidelity |
+
+Ask for a combined quality and security audit ("SQA audit", "unified audit") and the `quality-audit` skill runs both workflows, each with its own evidence rules, then derives `UNIFIED-REPORT.md` from the two validated record sets without changing either side's verdicts. See [quality-audit](#quality-audit) below.
+
+## security-audit
 
 A coding-agent skill that turns your agent into a security auditor. It orchestrates isolated agents through reconnaissance, coverage-led hunting, candidate validation, structured output, independent record verification, and target-neutral reporting.
 
@@ -96,6 +107,66 @@ The skill activates automatically when the request matches its trigger (security
 - **Severity requires impact.** Likelihood x impact, not deviation from a checklist.
 - **Defense-in-depth gaps are not vulnerabilities.** If Layer A prevents the attack, the absence of Layer B is a hardening note.
 - **Multiple runs improve coverage.** In our test runs, a single run found roughly half of the vulnerabilities that repeated runs found in total.
+
+## quality-audit
+
+The `quality-audit` skill audits a test suite for defects that change what its results mean: false passes, false fails, nondeterministic verdicts, missed regressions, and stale contract assumptions. It follows the same structure as `security-audit`: deterministic coverage ledger, isolated reviewers, a fresh verifier per candidate, schema-checked records, and reports derived only from verified records.
+
+### Modules
+
+- **Module A — SDET automation health.** Hard waits, one-shot assertions, brittle XPath/CSS locators, forced actions, focused or skipped tests, assertion-free tests, shared state, retry masking, and missing page-object or fixture layers. Framework notes cover Playwright, Cypress, Selenium/WebDriver, Appium, pytest, Jest/Vitest, JUnit, and Go.
+- **Module B — QA coverage and traceability.** Derives test conditions from the test basis (PRD, user story, acceptance criteria, README, or diff) with named techniques, then maps them to test cases in `traceability-matrix.json` and reports uncovered, partial, negative, boundary, and state-transition gaps.
+- **Module C — SEIT API contract and mocking.** Compares API tests and mocks with OpenAPI/AsyncAPI/GraphQL/protobuf/Pact contracts and DTOs: untested operations, status-only assertions with no schema validation, assertions that contradict the contract, and stale mocks or fixtures.
+
+### Outputs
+
+`QUALITY-REPORT.md` contains the **Test Automation Health Score (0–100)**, the **Flakiness Risk Index**, **Coverage Gap Warnings**, and **Contract Mismatch Alerts**. Each item is backed by `quality-findings.json`, `traceability-matrix.json`, `quality-ledger.json`, and `test-health.json`. Findings carry an ISO/IEC 25010:2023 quality characteristic, and the vocabulary follows ISO/IEC/IEEE 29119 and ISTQB CTFL v4.0 / CTAL-TAE v2.0; see [STANDARDS.md](skills/quality-audit/STANDARDS.md).
+
+The health score and flakiness index come from a deterministic static scan. They are heuristic signals, not measured flake rates, and every scanner hit is confirmed or rejected by a reviewer so the per-rule false-positive rate appears in the report.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `SKILL.md` | Modes (guidance, full, combined), safety, setup, severity anchors, workflow, anti-patterns |
+| `RECONNAISSANCE.md` | Phase 1: scanner run, test architecture, test basis and contract inventory, ledger seeding |
+| `REVIEW-WAVES.md` | Phase 2: reviewer prompt, structured result, consolidation, coverage critics |
+| `SDET-AUTOMATION-HEALTH.md` | Module A classes and validation rules |
+| `QA-COVERAGE-TRACEABILITY.md` | Module B classes, matrix format, and validation rules |
+| `SEIT-API-CONTRACT.md` | Module C classes and validation rules |
+| `VALIDATION-AND-REPORTING.md` | Phases 3–6, `QUALITY-REPORT.md`, and `UNIFIED-REPORT.md` |
+| `STANDARDS.md` | ISO/IEC/IEEE 29119, ISO/IEC 25010:2023, and ISTQB alignment |
+| `quality-report-schema.json` | Schema for findings, ledger, and traceability matrix |
+| `analyze-test-health.cjs` | Zero-dependency static scanner for Module A leads, health score, and flakiness index |
+| `validate-quality-run.cjs` | Zero-dependency validator for a run directory, with cross-file checks |
+| `*.test.cjs` | Tests for the scanner and validator |
+
+### Installation and usage
+
+```bash
+npx skills add https://github.com/modalqa/sqa-audit-skill --skill quality-audit
+npx skills add https://github.com/modalqa/sqa-audit-skill --skill security-audit   # needed for combined mode
+```
+
+```
+audit the test automation health of this repo
+check our e2e tests against docs/prd/checkout.md and the OpenAPI spec
+run a combined quality and security audit of this codebase
+```
+
+The scanner can also run standalone:
+
+```bash
+node skills/quality-audit/analyze-test-health.cjs <repo> --out health.json
+```
+
+### Development
+
+```bash
+node --test 'skills/**/*.test.cjs'
+```
+
+CI runs the tests on the supported Node.js LTS lines and runs CodeQL on every push and pull request.
 
 ## Contact
 

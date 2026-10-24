@@ -1,0 +1,5 @@
+# Local audit output selected inside the repo must stay untracked.
+/audit-output/
+/sqa-audit/
+.DS_Store
+node_modules/
